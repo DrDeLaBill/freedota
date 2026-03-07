@@ -15,8 +15,6 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # Используем собранный тобой образ
-    # Замени YOUR_GITHUB_USERNAME на свой логин
     container: ghcr.io/drdelabill/v2dat-runner:latest
     
     steps:
@@ -30,12 +28,13 @@ jobs:
           
       - name: Fetch upstream and diagnose
         run: |
+          # 1. Загрузка исходных данных
           API_URL="https://api.github.com/repos/runetfreedom/russia-v2ray-rules-dat/releases/latest"
           GEOSITE_URL=$(curl -s $API_URL | jq -r '.assets[] | select(.name=="geosite.dat") | .browser_download_url')
           GEOIP_URL=$(curl -s $API_URL | jq -r '.assets[] | select(.name=="geoip.dat") | .browser_download_url')
 
           if [ -z "$GEOSITE_URL" ] || [ -z "$GEOIP_URL" ]; then
-            echo "Error: Failed to fetch download URLs."
+            echo "Ошибка: Не удалось получить ссылки на файлы."
             exit 1
           fi
 
@@ -43,27 +42,82 @@ jobs:
           curl -L -s -o geosite_full.dat $GEOSITE_URL
           curl -L -s -o geoip_full.dat $GEOIP_URL
 
-          echo "Распаковка..."
+          # 2. Распаковка
+          echo "Распаковка сырых данных..."
           mkdir -p geosite_unpacked geoip_unpacked
           v2dat unpack geosite -o geosite_unpacked geosite_full.dat
           v2dat unpack geoip -o geoip_unpacked geoip_full.dat
 
-          echo "=== Доступные теги в GEOSITE ==="
-          ls -1 geosite_unpacked
+          # 3. Подготовка директорий для компиляторов
+          mkdir -p geosite_src geoip_src
 
-          echo "=== Доступные теги в GEOIP ==="
-          ls -1 geoip_unpacked
+          # 4. Фильтрация и переименование Geosite
+          # Важно: копируем без расширения .txt, иначе оно попадет в название тега
+          for tag in ru-available-only-inside win-spy category-ads-all; do
+            SRC_FILE="geosite_unpacked/geosite_full_${tag}.txt"
+            if [ -f "$SRC_FILE" ]; then
+              cp "$SRC_FILE" "geosite_src/${tag}"
+              echo "Geosite: тег $tag успешно извлечен."
+            else
+              echo "Geosite: Ошибка. Тег $tag не найден в апстриме."
+            fi
+          done
 
-      # - name: Create Release
-      #   uses: softprops/action-gh-release@v1
-      #   with:
-      #     files: |
-      #       ./geosite.dat
-      #       ./geoip.dat
-      #     name: Custom Geo Rules
-      #     body: "Automated build."
-      #     tag_name: |
-      #       latest
-      #       ${{ github.sha }}
-      #   env:
-      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 5. Фильтрация и переименование GeoIP
+          if [ -f "geoip_unpacked/geoip_full_yandex.txt" ]; then
+            cp "geoip_unpacked/geoip_full_yandex.txt" "geoip_src/yandex.txt"
+            echo "GeoIP: тег yandex успешно извлечен."
+          else
+            echo "GeoIP: Ошибка. Тег yandex не найден в апстриме."
+          fi
+
+          # 6. Компиляция Geosite
+          echo "Сборка geosite.dat..."
+          # Официальная утилита по умолчанию создает файл dlc.dat
+          domain-list-community -datapath ./geosite_src
+          mv dlc.dat geosite.dat
+
+          # 7. Компиляция GeoIP
+          echo "Сборка geoip.dat..."
+          cat <<EOF > geoip_config.json
+          {
+            "input": [
+              {
+                "type": "private",
+                "action": "add",
+                "args": {
+                  "datapath": "./geoip_src"
+                }
+              }
+            ],
+            "output": [
+              {
+                "type": "v2rayGeoIPDat",
+                "action": "output",
+                "args": {
+                  "filename": "geoip.dat"
+                }
+              }
+            ]
+          }
+          EOF
+          geoip -c geoip_config.json
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            geosite.dat
+            geoip.dat
+          tag_name: latest
+          name: Custom Lightweight Rules
+          body: "Автоматическая сборка для мобильных клиентов (до 50 МБ).\nВключены теги:\n- **geosite:** ru-available-only-inside, win-spy, category-ads-all\n- **geoip:** yandex"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # - name: Keep-alive commit
+      #   run: |
+      #     git config --global user.name "github-actions[bot]"
+      #     git config --global user.email "github-actions[bot]@users.noreply.github.com"
+      #     git commit --allow-empty -m "chore: keep-alive cron job"
+      #     git push
