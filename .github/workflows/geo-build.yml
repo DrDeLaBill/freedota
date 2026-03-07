@@ -102,6 +102,7 @@ jobs:
           }
           EOF
           geoip -c geoip_config.json
+          ls -al .
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
