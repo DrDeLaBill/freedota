@@ -123,7 +123,8 @@ jobs:
 
           echo "Проверка целостности Geosite..."
           for tag in ru-available-only-inside win-spy category-ads-all private; do
-            if [ ! -f "verify_geosite/${tag}" ]; then
+            # Добавлен префикс geosite_ и расширение .txt
+            if [ ! -f "verify_geosite/geosite_${tag}.txt" ]; then
               echo "КРИТИЧЕСКАЯ ОШИБКА: Тег $tag отсутствует в итоговом geosite.dat!"
               exit 1
             fi
@@ -131,7 +132,8 @@ jobs:
 
           echo "Проверка целостности GeoIP..."
           for tag in yandex private; do
-            if [ ! -f "verify_geoip/${tag}" ]; then
+            # Добавлен префикс geoip_ и расширение .txt
+            if [ ! -f "verify_geoip/geoip_${tag}.txt" ]; then
               echo "КРИТИЧЕСКАЯ ОШИБКА: Тег $tag отсутствует в итоговом geoip.dat!"
               exit 1
             fi
