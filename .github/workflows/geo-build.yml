@@ -9,6 +9,9 @@ on:
     - cron: '0 2 * * *'
   workflow_dispatch:
 
+env:
+  IMAGE_NAME: ${{ github.repository }}
+  
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -20,6 +23,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - id: image_name
+        uses: vishalmamidi/lowercase-action@v1
+        with:
+          string: ${{ env.IMAGE_NAME }}
+          
       - name: Fetch upstream and build
         run: |
           API_URL="https://api.github.com/repos/runetfreedom/russia-v2ray-rules-dat/releases/latest"
@@ -53,14 +61,18 @@ jobs:
           v2dat pack geosite -o geosite.dat geosite_custom/*
           v2dat pack geoip -o geoip.dat geoip_custom/*
 
+          ls -al .
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            geosite.dat
-            geoip.dat
-          tag_name: latest
-          name: Custom Rules
+            ./geosite.dat
+            ./geoip.dat
+          name: Custom Geo Rules
           body: "Automated build."
+          tag_name: |
+            latest
+            ${{ github.sha }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
