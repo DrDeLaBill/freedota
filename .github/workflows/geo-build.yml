@@ -28,7 +28,7 @@ jobs:
         with:
           string: ${{ env.IMAGE_NAME }}
           
-      - name: Fetch upstream and build
+      - name: Fetch upstream and diagnose
         run: |
           API_URL="https://api.github.com/repos/runetfreedom/russia-v2ray-rules-dat/releases/latest"
           GEOSITE_URL=$(curl -s $API_URL | jq -r '.assets[] | select(.name=="geosite.dat") | .browser_download_url')
@@ -39,40 +39,31 @@ jobs:
             exit 1
           fi
 
-          curl -L -o geosite_full.dat $GEOSITE_URL
-          curl -L -o geoip_full.dat $GEOIP_URL
+          echo "Скачивание файлов..."
+          curl -L -s -o geosite_full.dat $GEOSITE_URL
+          curl -L -s -o geoip_full.dat $GEOIP_URL
 
-          mkdir -p geosite_unpacked geoip_unpacked geosite_custom geoip_custom
+          echo "Распаковка..."
+          mkdir -p geosite_unpacked geoip_unpacked
           v2dat unpack geosite -o geosite_unpacked geosite_full.dat
           v2dat unpack geoip -o geoip_unpacked geoip_full.dat
 
-          for tag in ru-available-only-inside win-spy category-ads-all; do
-            if [ -f "geosite_unpacked/$tag" ]; then
-              cp "geosite_unpacked/$tag" "geosite_custom/"
-            else
-              echo "Warning: Tag $tag not found."
-            fi
-          done
+          echo "=== Доступные теги в GEOSITE ==="
+          ls -1 geosite_unpacked
 
-          if [ -f "geoip_unpacked/yandex" ]; then
-            cp "geoip_unpacked/yandex" "geoip_custom/"
-          fi
+          echo "=== Доступные теги в GEOIP ==="
+          ls -1 geoip_unpacked
 
-          v2dat pack geosite -o geosite.dat geosite_custom/*
-          v2dat pack geoip -o geoip.dat geoip_custom/*
-
-          ls -al .
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: |
-            ./geosite.dat
-            ./geoip.dat
-          name: Custom Geo Rules
-          body: "Automated build."
-          tag_name: |
-            latest
-            ${{ github.sha }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # - name: Create Release
+      #   uses: softprops/action-gh-release@v1
+      #   with:
+      #     files: |
+      #       ./geosite.dat
+      #       ./geoip.dat
+      #     name: Custom Geo Rules
+      #     body: "Automated build."
+      #     tag_name: |
+      #       latest
+      #       ${{ github.sha }}
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
