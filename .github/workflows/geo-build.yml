@@ -18,7 +18,7 @@ jobs:
     container: ghcr.io/drdelabill/v2dat-runner:latest
     permissions:
       contents: write
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -27,8 +27,8 @@ jobs:
         uses: vishalmamidi/lowercase-action@v1
         with:
           string: ${{ env.IMAGE_NAME }}
-          
-      - name: Fetch upstream and diagnose
+
+      - name: Fetch, Filter, Build and Verify
         run: |
           # 1. Загрузка исходных данных
           API_URL="https://api.github.com/repos/runetfreedom/russia-v2ray-rules-dat/releases/latest"
@@ -44,51 +44,60 @@ jobs:
           curl -L -s -o geosite_full.dat $GEOSITE_URL
           curl -L -s -o geoip_full.dat $GEOIP_URL
 
-          # 2. Распаковка
-          echo "Распаковка сырых данных..."
+          # 2. Распаковка сырых данных
           mkdir -p geosite_unpacked geoip_unpacked
           v2dat unpack geosite -o geosite_unpacked geosite_full.dat
           v2dat unpack geoip -o geoip_unpacked geoip_full.dat
 
-          # 3. Подготовка директорий для компиляторов
+          # 3. Подготовка директорий
           mkdir -p geosite_src geoip_src
 
-          # 4. Фильтрация и переименование Geosite
-          # Важно: копируем без расширения .txt, иначе оно попадет в название тега
-          for tag in ru-available-only-inside win-spy category-ads-all; do
+          # 4. Фильтрация Geosite
+          for tag in ru-available-only-inside win-spy category-ads-all private; do
             SRC_FILE="geosite_unpacked/geosite_full_${tag}.txt"
             if [ -f "$SRC_FILE" ]; then
               cp "$SRC_FILE" "geosite_src/${tag}"
-              echo "Geosite: тег $tag успешно извлечен."
             else
               echo "Geosite: Ошибка. Тег $tag не найден в апстриме."
+              exit 1
             fi
           done
 
-          # 5. Фильтрация и переименование GeoIP
-          if [ -f "geoip_unpacked/geoip_full_yandex.txt" ]; then
-            cp "geoip_unpacked/geoip_full_yandex.txt" "geoip_src/yandex.txt"
-            echo "GeoIP: тег yandex успешно извлечен."
-          else
-            echo "GeoIP: Ошибка. Тег yandex не найден в апстриме."
-          fi
+          # 5. Фильтрация GeoIP
+          for tag in yandex private; do
+            SRC_FILE="geoip_unpacked/geoip_full_${tag}.txt"
+            if [ -f "$SRC_FILE" ]; then
+              cp "$SRC_FILE" "geoip_src/${tag}.txt"
+            else
+              echo "GeoIP: Ошибка. Тег $tag не найден в апстриме."
+              exit 1
+            fi
+          done
 
           # 6. Компиляция Geosite
           echo "Сборка geosite.dat..."
-          # Официальная утилита по умолчанию создает файл dlc.dat
           domain-list-community -datapath ./geosite_src
           mv dlc.dat geosite.dat
 
-          # 7. Компиляция GeoIP
+          # 7. Компиляция GeoIP (Исправленный синтаксис)
           echo "Сборка geoip.dat..."
           cat <<EOF > geoip_config.json
           {
             "input": [
               {
-                "type": "private",
+                "type": "text",
                 "action": "add",
                 "args": {
-                  "datapath": "./geoip_src"
+                  "name": "yandex",
+                  "uri": "./geoip_src/yandex.txt"
+                }
+              },
+              {
+                "type": "text",
+                "action": "add",
+                "args": {
+                  "name": "private",
+                  "uri": "./geoip_src/private.txt"
                 }
               }
             ],
@@ -105,7 +114,29 @@ jobs:
           EOF
           geoip -c geoip_config.json
           mv output/dat/geoip.dat ./geoip.dat
-          ls -al .
+
+          # === ВЕРИФИКАЦИЯ (Проверка итоговых файлов) ===
+          echo "Запуск проверки сгенерированных файлов..."
+          mkdir -p verify_geosite verify_geoip
+          v2dat unpack geosite -o verify_geosite geosite.dat
+          v2dat unpack geoip -o verify_geoip geoip.dat
+
+          echo "Проверка целостности Geosite..."
+          for tag in ru-available-only-inside win-spy category-ads-all private; do
+            if [ ! -f "verify_geosite/${tag}" ]; then
+              echo "КРИТИЧЕСКАЯ ОШИБКА: Тег $tag отсутствует в итоговом geosite.dat!"
+              exit 1
+            fi
+          done
+
+          echo "Проверка целостности GeoIP..."
+          for tag in yandex private; do
+            if [ ! -f "verify_geoip/${tag}" ]; then
+              echo "КРИТИЧЕСКАЯ ОШИБКА: Тег $tag отсутствует в итоговом geoip.dat!"
+              exit 1
+            fi
+          done
+          echo "Верификация пройдена успешно. Все категории интегрированы корректно."
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
@@ -115,13 +146,16 @@ jobs:
             geoip.dat
           tag_name: latest
           name: Custom Lightweight Rules
-          body: "Автоматическая сборка для мобильных клиентов (до 50 МБ).\nВключены теги:\n- **geosite:** ru-available-only-inside, win-spy, category-ads-all\n- **geoip:** yandex"
+          body: "Автоматическая сборка для мобильных клиентов (до 50 МБ).\nВключены теги:\n- **geosite:** ru-available-only-inside, win-spy, category-ads-all, private\n- **geoip:** yandex, private"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # - name: Keep-alive commit
       #   run: |
-      #     git config --global user.name "github-actions[bot]"
-      #     git config --global user.email "github-actions[bot]@users.noreply.github.com"
-      #     git commit --allow-empty -m "chore: keep-alive cron job"
-      #     git push
+      #     DAY=$(date +%d)
+      #     if [ "$DAY" = "01" ] || [ "$DAY" = "15" ]; then
+      #       git config --global user.name "github-actions[bot]"
+      #       git config --global user.email "github-actions[bot]@users.noreply.github.com"
+      #       git commit --allow-empty -m "chore: keep-alive cron job"
+      #       git push origin HEAD
+      #     fi
