@@ -1,0 +1,62 @@
+name: Build Custom Rules DAT
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Используем собранный тобой образ
+    # Замени YOUR_GITHUB_USERNAME на свой логин
+    container: ghcr.io/drdelabill/v2dat-runner:latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Fetch upstream and build
+        run: |
+          API_URL="https://api.github.com/repos/runetfreedom/russia-v2ray-rules-dat/releases/latest"
+          GEOSITE_URL=$(curl -s $API_URL | jq -r '.assets[] | select(.name=="geosite.dat") | .browser_download_url')
+          GEOIP_URL=$(curl -s $API_URL | jq -r '.assets[] | select(.name=="geoip.dat") | .browser_download_url')
+
+          if [ -z "$GEOSITE_URL" ] || [ -z "$GEOIP_URL" ]; then
+            echo "Error: Failed to fetch download URLs."
+            exit 1
+          fi
+
+          curl -L -o geosite_full.dat $GEOSITE_URL
+          curl -L -o geoip_full.dat $GEOIP_URL
+
+          mkdir -p geosite_unpacked geoip_unpacked geosite_custom geoip_custom
+          v2dat unpack geosite -o geosite_unpacked geosite_full.dat
+          v2dat unpack geoip -o geoip_unpacked geoip_full.dat
+
+          for tag in ru-available-only-inside win-spy category-ads-all; do
+            if [ -f "geosite_unpacked/$tag" ]; then
+              cp "geosite_unpacked/$tag" "geosite_custom/"
+            else
+              echo "Warning: Tag $tag not found."
+            fi
+          done
+
+          if [ -f "geoip_unpacked/yandex" ]; then
+            cp "geoip_unpacked/yandex" "geoip_custom/"
+          fi
+
+          v2dat pack geosite -o geosite.dat geosite_custom/*
+          v2dat pack geoip -o geoip.dat geoip_custom/*
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            geosite.dat
+            geoip.dat
+          tag_name: latest
+          name: Custom Rules
+          body: "Automated build."
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
