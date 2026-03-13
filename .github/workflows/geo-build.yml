@@ -140,12 +140,19 @@ jobs:
           done
           echo "Верификация пройдена успешно. Все категории интегрированы корректно."
 
+          # === ГЕНЕРАЦИЯ ХЭШЕЙ ===
+          echo "Вычисление контрольных сумм SHA256..."
+          sha256sum geosite.dat > geosite.dat.sha256sum
+          sha256sum geoip.dat > geoip.dat.sha256sum
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
             geosite.dat
             geoip.dat
+            geosite.dat.sha256sum
+            geoip.dat.sha256sum
           tag_name: latest
           name: Custom Lightweight Rules
           body: "Автоматическая сборка для мобильных клиентов (до 50 МБ).\nВключены теги:\n- **geosite:** ru-available-only-inside, win-spy, category-ads-all, private\n- **geoip:** yandex, private"
